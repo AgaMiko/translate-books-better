@@ -1,0 +1,13 @@
+{
+  "name": "translate-books-better",
+  "owner": {
+    "name": "AgaMiko"
+  },
+  "plugins": [
+    {
+      "name": "translate-books-better",
+      "source": "./",
+      "description": "Translate a book (fiction or non-fiction, any pair of languages) with Claude Code, following the Mneme workflow."
+    }
+  ]
+}

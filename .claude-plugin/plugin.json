@@ -1,0 +1,18 @@
+{
+  "name": "translate-books-better",
+  "description": "Translate a book (fiction or non-fiction, any pair of languages) with Claude Code, following the Mneme workflow: style sheet, glossary, voice briefs, fragment-by-fragment translation, checks and export.",
+  "version": "0.2.0",
+  "author": {
+    "name": "AgaMiko"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/AgaMiko/translate-books-better",
+  "repository": "https://github.com/AgaMiko/translate-books-better",
+  "keywords": [
+    "translation",
+    "fiction",
+    "non-fiction",
+    "literary translation",
+    "glossary"
+  ]
+}
