@@ -1171,7 +1171,7 @@ def looks_untranslated(source: str, text: str) -> bool:
 
 
 def hard_checks(st: dict, tgt: list[tuple[str, str]], src: list[tuple[str, str]],
-                glossary: list[dict] | None = None) -> list[str]:
+                glossary: list[dict] | None = None, kept: set[str] | None = None) -> list[str]:
     src_map = dict(src)
     leftover = leftover_pattern(st)
     names = kept_names(glossary or [])
@@ -1183,7 +1183,7 @@ def hard_checks(st: dict, tgt: list[tuple[str, str]], src: list[tuple[str, str]]
         source = src_map.get(pid, "")
         if leftover and (m := leftover.findall(names.sub(" ", text) if names else text)):
             problems.append(f"[{pid}] source-language letters left: {''.join(sorted(set(m)))}")
-        if looks_untranslated(source, text):
+        if looks_untranslated(source, text) and pid not in (kept or set()):
             problems.append(f"[{pid}] looks untranslated: most of its words are the same as in the source")
         if quotes and DIALOGUE_START.match(text) and SOURCE_DASH.match(source):
             problems.append(f"[{pid}] starts with a dialogue dash; this language uses quotation marks")
@@ -1464,8 +1464,8 @@ def cmd_check(root: Path, a: argparse.Namespace) -> None:
             continue
         have = {pid for pid, _ in tgt}
         missing = [pid for pid, _ in src if pid not in have]
-        problems = hard_checks(st, tgt, src, glossary)
         skip = passages.get(n, set())
+        problems = hard_checks(st, tgt, src, glossary, kept=skip)
         drift = glossary_drift(glossary, dict(src), tgt, code, skip)
         m = style_metrics("\n".join(t for _, t in tgt), code)
         total += len(problems) + len(drift)

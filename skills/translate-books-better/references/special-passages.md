@@ -7,6 +7,7 @@ A special passage is a run of paragraphs whose wording follows a rule, so a tran
 | `verse` | Poem, song, rhyme, chant, prayer, spell or riddle: number of lines, rhyme scheme, line length. |
 | `hidden_message` | Letters or words spell a message (often the first letters of sentences, lines, paragraphs, words or marked words). |
 | `wordplay` | A pun, anagram, riddle or play on a name that the plot, a joke, an argument or a later line depends on. Ordinary figures of speech do not count. |
+| `kept` | Text that stays in the source language on purpose: program output shown next to its code, a quotation the author gives in the original, a label of a user interface. The rule is "leave as written"; `check` does not report these paragraphs as untranslated. |
 | `refrain` | A phrase the text repeats on purpose (a title question asked again at the end of the chapter, a motto, a catchphrase), maybe reworded the second time: the same wording wherever it repeats exactly, and a recognisable echo where it comes back reworded or as reported speech. |
 | `quotation` | A quotation from another published work (a poem, scripture, a philosopher, a law): the published translation in the target language if one exists, or the translator's own, said in a note. Mostly non-fiction; fiction that quotes real works too. |
 
@@ -44,7 +45,7 @@ Status: todo
 - wordplay: the two meanings or forms, and what depends on them.
 - quotation: the work, the author, the published translation to use (title, translator, edition) or "none known: own translation, with a note".
 - reported hidden message: the example words and letters the narration gives, the message, and the rule the narration states ("a letter from the middle of a word"). In the target, choose example words whose letters spell the target message; if the source gives a reason that does not carry over (no Polish word starts with Y), either find a reason that does or drop it, and say which in a wordplay note. `letters --translation` cannot check it: check by reading.
-- **Dependent paragraphs**: paragraphs of the same chapter that quote the passage, explain its rule, give worked examples of it, or state what it hides. They must stay consistent with the translation.
+- **Dependent paragraphs**: paragraphs that quote the passage (in the same chapter as `p052`, in another as `02:p005`), explain its rule, give worked examples of it, or state what it hides. They must stay consistent with the translation.
 
 If no candidate is kept, `passages.md` still lists what was checked, one line each, so a later session does not scan again:
 

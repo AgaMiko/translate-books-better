@@ -53,7 +53,7 @@ Go through the proposed rows once more and decide each the way the author would.
 
 **Keep:** names of people, places, organisations, factions and creatures; terms of the field and terms the author defines (non-fiction); invented words and coinages; titles of in-world books, songs and works, and quoted sayings, prayers or mottos, even when they appear only once; words a character uses to name what they are, and recurring slurs or labels for a group ("przybłęda", stray; "Bezimienni"); words used in a special in-world sense, and named concepts where several renderings are possible and consistency matters.
 
-**Remove:** everyday words whose translation is simply the dictionary word (a sword, darkness), except the key words of a non-fiction chapter's running examples (see above); descriptive phrases and sensory descriptions that are not names; ordinary objects, foods and actions; generic ranks and roles used as common nouns (a general).
+**Remove:** descriptive phrases, adjectives and verb phrases ("data-hungry", "easy to spot"): they change form with the sentence, so a fixed target gives false warnings; everyday words whose translation is simply the dictionary word (a sword, darkness), except the key words of a non-fiction chapter's running examples (see above); descriptive phrases and sensory descriptions that are not names; ordinary objects, foods and actions; generic ranks and roles used as common nouns (a general).
 
 **Merge** only when two rows refer to the same person, place or thing: another name, an epithet, a short form, or the same term in another grammatical form. Similar meaning is not enough.
 
