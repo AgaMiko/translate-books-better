@@ -177,7 +177,10 @@ DIALOGUE_START = re.compile(r"^\s*[–—-]\s")
 SENTENCE_END = re.compile(r"(?<=[.!?\u2026])[*_\"\u201d\u2019\u00bb)」』]*\s+|(?<=[。！？])[」』）]*\s*")
 FOOTNOTE = re.compile(r"\[\^[^\]]+\]|<sup>[^<]+</sup>")
 LINK = re.compile(r"https?://\S+|www\.\S+")
-NUMBER = re.compile(r"(?<![\w.,])\d[\d.,\s\u00a0\u202f]*\d(?![\w])|(?<![\w.,])\d(?![\w.,])")
+# A number: digit groups with one thousands separator before each group of three ("1 000",
+# "12,500"), or digits with an optional decimal part ("0,4", "2.7"). A comma followed by a
+# space ends the number, so "In 2020, 804 images" holds two numbers.
+NUMBER = re.compile(r"(?<![\w.,])(?:\d{1,3}(?:[ ,.\u00a0\u202f]\d{3})+|\d+(?:[.,]\d+)?)(?!\w)")
 
 STATE_FILE = "mneme.json"
 
@@ -401,10 +404,14 @@ def cmd_prepare(root: Path, a: argparse.Namespace) -> None:
             if tops and chapter_like(tops[0]):
                 print(f"One top heading, '{plain(tops[0])}', taken as the only chapter; its '##' headings "
                       "are sections. If it is the book title, run again with --chapter-level 2.")
+            elif tops:
+                chapter_level = 2
+                print(f"'{plain(tops[0])}' taken as the book title and '##' headings as "
+                      "chapters. If the file is one chapter, run again with --chapter-level 1.")
             else:
                 chapter_level = 2
-                print(f"'{plain(tops[0]) if tops else ''}' taken as the book title and '##' headings as "
-                      "chapters. If the file is one chapter, run again with --chapter-level 1.")
+                print("No top-level ('#') heading found, so '##' headings are taken as chapters. "
+                      "If they are sections of one chapter, run again with --chapter-level 1.")
         if chapter_level == 2:
             blocks = [(t, "Title" if level(st_) == 1 else st_) for t, st_ in blocks]
         elif len(tops) <= 1 or (tops and chapter_like(tops[0])):
@@ -896,11 +903,13 @@ FOOTNOTE_DEF = re.compile(r"^\s*\[\^([^\]]+)\]:")
 def footnote_texts(root: Path, st: dict, n: int, text: str, here: set[str]) -> dict:
     """{(chapter, id): (source, translation)} of footnote definitions ('[^3]: …') whose
     markers appear in `text` but which stand outside the fragment: in the same chapter
-    first, else in any chapter (endnotes collected at the end of the book)."""
+    first, else in the last chapter (endnotes collected at the end of the book). Other
+    chapters are not searched, since footnote numbers often restart in each chapter."""
     marks = {m.group(1) for m in re.finditer(r"\[\^([^\]]+)\](?!:)", text)}
     marks -= {m.group(1) for line in text.split("\n") if (m := FOOTNOTE_DEF.match(line))}
     out: dict = {}
-    order = [n] + [c["n"] for c in st["chapters"] if c["n"] != n]
+    last = st["chapters"][-1]["n"]
+    order = [n] + ([last] if last != n else [])
     for ch in order:
         if not marks:
             break
@@ -1035,8 +1044,15 @@ def leftover_pattern(st: dict) -> re.Pattern[str] | None:
     letters = st.get("source_letters") or ""
     if not letters:
         return None
-    own = LANGUAGES.get(st.get("target_language_code", "en"), {}).get("letters", "")
+    own = class_escape(LANGUAGES.get(st.get("target_language_code", "en"), {}).get("letters", ""))
+    letters = class_escape(letters)
     return re.compile(f"(?![{own}])[{letters}]" if own else f"[{letters}]")
+
+
+def class_escape(letters: str) -> str:
+    """Letters for a regex character class: '\\', ']' and '^' are escaped; '-' between two
+    letters stays a range (the LANGUAGES table uses ranges for whole scripts)."""
+    return re.sub(r"([\\\]^])", r"\\\1", letters)
 
 
 def kept_names(glossary: list[dict]) -> re.Pattern[str] | None:
@@ -1061,7 +1077,7 @@ def hard_checks(st: dict, tgt: list[tuple[str, str]], src: list[tuple[str, str]]
         source = src_map.get(pid, "")
         if leftover and (m := leftover.findall(names.sub(" ", text) if names else text)):
             problems.append(f"[{pid}] source-language letters left: {''.join(sorted(set(m)))}")
-        if quotes and DIALOGUE_START.match(text):
+        if quotes and DIALOGUE_START.match(text) and SOURCE_DASH.match(source):
             problems.append(f"[{pid}] starts with a dialogue dash; this language uses quotation marks")
         if len(FOOTNOTE.findall(text)) != len(FOOTNOTE.findall(source)):
             problems.append(f"[{pid}] footnote markers: {len(FOOTNOTE.findall(source))} in the source, "
@@ -1195,14 +1211,15 @@ def style_metrics(text: str, code: str = "en") -> dict:
     }
 
 
-def style_line(st: dict, tgt: list[str], src: list[str], per_fragment: bool = False) -> str:
+def style_line(st: dict, tgt: list[str], src: list[str], per_fragment: bool = False,
+               m: dict | None = None) -> str:
     """One line of style numbers for a fragment or a chapter, each next to the source's
     own rate where one can be measured. All books: sentences and questions against the
     source (merged sentences and lost rhetorical questions flatten an author's voice).
     Fiction: pronoun openers and ellipses. Non-fiction: very long sentences against the
     source. Both: em dashes and stock phrases."""
     code = st.get("target_language_code", "en")
-    m = style_metrics("\n".join(tgt), code)
+    m = m or style_metrics("\n".join(tgt), code)
     flag = lambda v, mx, unit="": f"{v}{unit} (target ≤ {mx}{unit}){' ⚠' if v > mx else ''}"  # noqa: E731
     parts = [f"{m['words']} words"] if not per_fragment else []
     n_t, n_s = sentence_count(tgt), sentence_count(src)
@@ -1213,14 +1230,14 @@ def style_line(st: dict, tgt: list[str], src: list[str], per_fragment: bool = Fa
     if st.get("genre") == "nonfiction":
         # "Long" is 30 words in the source and the same length scaled by the two texts' word
         # ratio in the translation, since languages need different numbers of words.
-        words = lambda ps: sum(len(t.split()) for t in ps if not t.startswith("#"))  # noqa: E731
-        limit = 30 * words(tgt) / max(words(src), 1)
+        word_count = lambda ps: sum(len(t.split()) for t in ps if not t.startswith("#"))  # noqa: E731
+        limit = 30 * word_count(tgt) / max(word_count(src), 1)
         long_ = lambda ps, k: sum(1 for t in ps if not t.startswith("#")  # noqa: E731
                                   for x in SENTENCE_END.split(t) if len(x.split()) >= k)
         parts.append(f"long sentences {long_(tgt, limit)} (source {long_(src, 30)}; "
                      f"30 source words, {round(limit)} here)")
     if st.get("genre", "fiction") == "fiction":
-        words = LANGUAGES.get(code, {}).get("pronouns")
+        pronouns = LANGUAGES.get(code, {}).get("pronouns")
         if m["she_he_pct"] is not None:
             src_code = st.get("source_language_code", "")
             src_share = pronoun_share(src, src_code)
@@ -1230,7 +1247,7 @@ def style_line(st: dict, tgt: list[str], src: list[str], per_fragment: bool = Fa
                 note = "the source drops the subject, so it has no rate; its runs of short action sentences are the author's"
             else:
                 note = "no source rate"
-            parts.append(f"{'/'.join(words)} openers {flag(m['she_he_pct'], SHE_HE_MAX_PCT, '%')}, {note}")
+            parts.append(f"{'/'.join(pronouns)} openers {flag(m['she_he_pct'], SHE_HE_MAX_PCT, '%')}, {note}")
         src_narr, src_dial = source_ellipses(src)
         parts.append(f"ellipses per 1k in narration {ellipsis_flag(m['ellipses_narration_per_1k'], src_narr)}, "
                      f"in dialogue {m['ellipses_dialogue_per_1k']} (source {src_dial})")
@@ -1328,7 +1345,7 @@ def cmd_check(root: Path, a: argparse.Namespace) -> None:
                         or "- none") + "\n")
         if skip:
             lines.append(f"(Glossary not checked in special passages: {' '.join(sorted(skip))}.)\n")
-        lines.append(f"Style: {style_line(st, [t for _, t in tgt], [t for _, t in src])}\n")
+        lines.append(f"Style: {style_line(st, [t for _, t in tgt], [t for _, t in src], m=m)}\n")
         if runs and (m["she_he_pct"] or 0) > SHE_HE_MAX_PCT - 3:
             lines.append(f"Most pronoun openers: {', '.join(runs)}\n")
     if untranslated:
