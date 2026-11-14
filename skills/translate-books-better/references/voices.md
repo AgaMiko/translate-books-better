@@ -13,7 +13,7 @@ Write `voices/_author.md` first. `fragment` lists it for every fragment. It desc
 - fragments used as punch lines ("Tym razem przynajmniej z mapą."): count them; in the translation they stay fragments, not full sentences;
 - what to keep against the target's habits, and what is grammar only (in a language that drops the subject, verb-first sentences are grammar; the run of short action sentences is the habit).
 
-Count from the text (`inner` lists italic passages and narration questions per chapter; for sentence length, read two or three whole chapters). Same format as below, about 150 words, with a short sample in the target language.
+Count from the text (`inner` lists italic passages and narration questions per chapter; for sentence length, read two or three whole chapters). Cite evidence by paragraph id: `find "<words>"` prints the id of the paragraph that contains them. Same format as below, about 150 words, with a short sample in the target language.
 
 ## 2. Collect each speaker's lines
 

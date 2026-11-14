@@ -35,6 +35,8 @@ Commands (run in the book folder, or pass --dir):
                                 --skeleton writes work/lines-draft.md to fill in;
                                 --group turns it into work/lines.md per speaker,
                                 with counts of short lines, ! ? and ….
+    find <words> [chapters] [--translation]
+                                Paragraph ids of paragraphs that contain the words.
     inner [chapters]            Italic thoughts and narration questions per
                                 chapter, with counts: the inner voice of a
                                 point-of-view character, or the author's.
@@ -51,7 +53,7 @@ Commands (run in the book folder, or pass --dir):
                                 placeholders, footnotes, links, numbers
                                 (non-fiction), glossary use, style metrics.
                                 Merges notes/chapter-NN.md into notes.md.
-    export [--draft] [--chapters 1-2] [--title T]
+    export [--draft] [--chapters 1-2] [--title T] [--per-chapter]
                                 Write export/<title>.md (and .docx / .epub
                                 when pandoc is installed).
 
@@ -176,13 +178,16 @@ DIALOGUE_START = re.compile(r"^\s*[–—-]\s")
 # A sentence ends at . ! ? or … (or 。！？), maybe followed by closing quotes or italic marks.
 SENTENCE_END = re.compile(r"(?<=[.!?\u2026])[*_\"\u201d\u2019\u00bb)」』]*\s+|(?<=[。！？])[」』）]*\s*")
 FOOTNOTE = re.compile(r"\[\^[^\]]+\]|<sup>[^<]+</sup>")
-LINK = re.compile(r"https?://\S+|www\.\S+")
+# A URL ends at whitespace, a quotation mark, a closing bracket or an angle bracket, so
+# "(https://x.org)", or a URL followed by a closing quote, is read without them.
+LINK = re.compile(r"(?:https?://|www\.)[^\s<>\"'\u201c\u201d\u201e\u00ab\u00bb)\]]+")
 # A number: digit groups with one thousands separator before each group of three ("1 000",
 # "12,500"), or digits with an optional decimal part ("0,4", "2.7"). A comma followed by a
 # space ends the number, so "In 2020, 804 images" holds two numbers.
 NUMBER = re.compile(r"(?<![\w.,])(?:\d{1,3}(?:[ ,.\u00a0\u202f]\d{3})+|\d+(?:[.,]\d+)?)(?!\w)")
 
 STATE_FILE = "mneme.json"
+FRONT_MATTER_MAX_WORDS = 40  # more text than this before chapter 1 is probably body text
 
 
 # ─── Paragraph files: "[id]" on its own line, then the text ─────────────
@@ -222,10 +227,13 @@ def render(paras: list[tuple[str, str]]) -> str:
 
 
 def load_state(root: Path) -> dict:
+    global SOURCE_CODE
     path = root / STATE_FILE
     if not path.exists():
         sys.exit(f"No {STATE_FILE} in {root}. Run 'prepare' first.")
-    return json.loads(path.read_text(encoding="utf-8"))
+    st = json.loads(path.read_text(encoding="utf-8"))
+    SOURCE_CODE = st.get("source_language_code", "")
+    return st
 
 
 def save_state(root: Path, state: dict) -> None:
@@ -290,6 +298,14 @@ def text_blocks(path: Path, levels: int = 2) -> list[tuple[str, str | None]]:
     chunks = [c for c in re.split(r"\n\s*\n", raw) if c.strip()]
     if len(chunks) <= 2 and raw.count("\n") > 10:
         chunks = [line for line in raw.split("\n") if line.strip()]
+    # A fenced code block (```) with blank lines inside stays one paragraph.
+    merged: list[str] = []
+    for c in chunks:
+        if merged and merged[-1].count("```") % 2 == 1:
+            merged[-1] += "\n\n" + c
+        else:
+            merged.append(c)
+    chunks = merged
     out: list[tuple[str, str | None]] = []
     for c in chunks:
         c = c.strip()
@@ -372,8 +388,8 @@ def cmd_prepare(root: Path, a: argparse.Namespace) -> None:
             print(f"Warning: {', '.join(written)} already exist. Paragraph ids may change with the new "
                   "split, so line ids in work/lines.md, voice evidence and notes may point at the "
                   "wrong paragraphs. Compare source/ before and after.")
-        for old in (root / "source").glob("chapter-*.md"):
-            old.unlink()
+        for old in list((root / "source").glob("chapter-*.md")) + [root / "source" / "front-matter.md"]:
+            old.unlink(missing_ok=True)
     code = lang_code(a.source_language)
     target = lang_code(a.target_language)
     genre = a.genre
@@ -395,13 +411,35 @@ def cmd_prepare(root: Path, a: argparse.Namespace) -> None:
     # headings stay in the chapter as section headings ('## …'). A single top heading
     # that looks like a chapter ("I", "3", "Rozdział 3") is one chapter, not the book
     # title. --chapter-level overrides the guess.
+    # A first '#' line (the "Title" block) followed by real text before the next heading
+    # (a lead, an opening paragraph) is a chapter, such as a post, an essay or a novel's
+    # first chapter, not the book's title. A title page holds a few words at most.
+    if blocks and blocks[0][1] == "Title":
+        lead = 0
+        for t, st_ in blocks[1:]:
+            if st_:
+                break
+            lead += len(t.split())
+        if lead > FRONT_MATTER_MAX_WORDS:
+            blocks[0] = (blocks[0][0], "Heading 1")
+
     chapter_level = a.chapter_level or 1
     if genre == "nonfiction":
         tops = [t for t, st_ in blocks if st_ == "Title" or level(st_) == 1]
         chapter_like = lambda t: bool(re.fullmatch(r"[IVXLCDM]+\.?|\d+\.?", plain(t), re.IGNORECASE)  # noqa: E731
                                       or has_chapter_word(t, pattern, True))
-        if not a.chapter_level and len(tops) <= 1 and any(level(st_) == 2 for _, st_ in blocks):
-            if tops and chapter_like(tops[0]):
+        # Body text between the one top heading and the first '##' (a lead, an introduction)
+        # means the file is one chapter, such as an essay or a blog post, not a book whose
+        # title page is followed by chapters.
+        firsts = [i for i, (_, st_) in enumerate(blocks) if level(st_) == 2]
+        top_i = next((i for i, (_, st_) in enumerate(blocks) if st_ == "Title" or level(st_) == 1), -1)
+        intro = sum(len(t.split()) for t, st_ in blocks[top_i + 1:firsts[0]] if not st_) if firsts else 0
+        if not a.chapter_level and len(tops) <= 1 and firsts:
+            if tops and intro > FRONT_MATTER_MAX_WORDS:
+                print(f"One top heading, '{plain(tops[0])}', with {intro} words of text before the first "
+                      "'##': taken as one chapter, with '##' sections. If it is the book title and the "
+                      "text is front matter, run again with --chapter-level 2.")
+            elif tops and chapter_like(tops[0]):
                 print(f"One top heading, '{plain(tops[0])}', taken as the only chapter; its '##' headings "
                       "are sections. If it is the book title, run again with --chapter-level 2.")
             elif tops:
@@ -449,6 +487,9 @@ def cmd_prepare(root: Path, a: argparse.Namespace) -> None:
             continue
         if brk := scene_break(text):
             current["paras"].append(brk)
+            continue
+        if text.lstrip().startswith("```"):
+            current["paras"].append(text)  # code stays exactly as written
             continue
         text = MD_ESCAPE.sub(r"\1", text)
         parts = STAR_SPLIT.split(text)
@@ -500,13 +541,18 @@ def cmd_prepare(root: Path, a: argparse.Namespace) -> None:
     print(f"Split '{state['title']}': {len(state_chapters)} chapters, {total} words, "
           f"{len(fragments)} fragments. State in {root / STATE_FILE}.")
     if front:
-        print(f"Front matter before chapter 1 ({sum(len(t.split()) for t in front)} words) "
-              "is in source/front-matter.md and is not translated.")
+        words = sum(len(t.split()) for t in front)
+        print(f"Front matter before chapter 1 ({words} words) is in source/front-matter.md and is "
+              "not translated.")
+        if words > FRONT_MATTER_MAX_WORDS:
+            print(f"Warning: {words} words is more than a title page usually holds. If it is body text, "
+                  "fix the headings (or use --chapter-level) and run prepare again with --force.")
     untitled = [c["n"] for c in state_chapters if not chapters[c["n"] - 1]["title"]]
     if untitled:
         print(f"Chapters without a heading: {untitled}. Check that the split is right.")
     if not state["source_letters"]:
-        print(f"Note: no letter list for '{code}'. Pass --letters to enable the leftover-letters check.")
+        print(f"Note: no letter list for '{code}', so the leftover-letters check is off (pass --letters "
+              "to turn it on). Paragraphs left untranslated are still reported, by their words.")
     if code not in LANGUAGES or target not in LANGUAGES:
         unknown = [c for c in (code, target) if c not in LANGUAGES]
         print(f"Note: no language facts for {', '.join(unknown)}: chapter words, pronoun and dialogue "
@@ -625,6 +671,17 @@ def word_pattern(word: str, inflect: bool) -> str:
     return re.escape(word) + f"{LETTER}{{0,2}}"
 
 
+SOURCE_CODE = ""  # the book's source language, set by load_state; glossary matching uses its endings
+
+
+def english_word_pattern(word: str) -> str:
+    """English endings only: plural, possessive, -ed, -ing ('chick' → 'chicks', not 'chicken')."""
+    if not word[-1:].isalpha() or len(word) < 3:
+        return re.escape(word)
+    stem = word[:-1] if word.endswith("e") else word
+    return f"(?:{re.escape(word)}(?:s|es|'s|’s|ed|d)?|{re.escape(stem)}ing)"
+
+
 def term_regex(row: dict) -> re.Pattern[str]:
     """Match any listed form, each word with case endings (see word_pattern).
     The optional Match column of the glossary turns this off: 'case' matches
@@ -634,7 +691,8 @@ def term_regex(row: dict) -> re.Pattern[str]:
     inflect = "exact" not in mode
     alts = []
     for f in sorted(term_forms(row), key=len, reverse=True):
-        alts.append(r"\s+".join(word_pattern(w, inflect) for w in f.split()))
+        alts.append(r"\s+".join((english_word_pattern(w) if inflect and SOURCE_CODE == "en" else word_pattern(w, inflect))
+                                 for w in f.split()))
     flags = 0 if "case" in mode else re.IGNORECASE
     return re.compile(rf"(?<!{LETTER})(?:{'|'.join(alts)})(?!{LETTER})", flags)
 
@@ -695,6 +753,22 @@ def target_forms(row: dict) -> list[str]:
     return [f.strip() for f in target_of(row).split("/") if f.strip()]
 
 
+def fold(text: str) -> str:
+    """Text without diacritics ('Łódź' → 'Lodz'), for matching inflected forms whose vowels
+    change inside the word (Polish 'zbiór' → 'zbiorze', 'Łódź' → 'Łodzi')."""
+    t = text.replace("ł", "l").replace("Ł", "L")
+    return "".join(c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c))
+
+
+def target_word_pattern(word: str) -> str:
+    """A target word with the target language's endings, matched on folded text: the stem
+    keeps all but the last two letters (at least three) and may take up to five more."""
+    f = fold(word)
+    if not f[-1:].isalpha() or len(f) < 4:
+        return re.escape(f) + (f"{LETTER}{{0,3}}" if f[-1:].isalpha() else "")
+    return re.escape(f[:max(3, len(f) - 2)]) + f"{LETTER}{{0,5}}"
+
+
 def target_regex(row: dict, code: str = "en") -> re.Pattern[str]:
     """What counts as the agreed translation being used: the target form without a
     leading article, each word with the language's endings (English: Stonebridge/Stonebridges,
@@ -718,12 +792,12 @@ def target_regex(row: dict, code: str = "en") -> re.Pattern[str]:
                 stem = re.sub(r"(?:ers|er|es|s|ing|ed|e|y)$", "", w, flags=re.IGNORECASE) if len(w) > 4 else w
                 words.append(re.escape(stem) + r"[\w'’]{0,5}")
             else:
-                words.append(word_pattern(w, True))
+                words.append(target_word_pattern(w))
         alts.append(r"\s+".join(words))
     # A short form the rules keep as it is ('Mag' for Magdalena): a listed form that the
     # target form starts with.
     main = re.sub(article, "", (target_forms(row) or [""])[0], flags=re.IGNORECASE)
-    alts += [re.escape(f) for f in term_forms(row)
+    alts += [re.escape(f if code == "en" else fold(f)) for f in term_forms(row)
              if f[:1].isupper() and main.lower().startswith(f.lower()) and f.lower() != main.lower()]
     if not alts:
         return re.compile(r"(?!)")
@@ -846,6 +920,23 @@ def narration_of(text: str, genre: str) -> str:
     return SPEECH_QUOTES.sub(lambda m: m.group(0) if len(m.group(0).split()) <= 3 else " ", text)
 
 
+def cmd_find(root: Path, a: argparse.Namespace) -> None:
+    """Paragraph ids of the source (or translation) paragraphs that contain some words, for
+    citing evidence in voice briefs, glossary notes and passages."""
+    st = load_state(root)
+    kind = "translation" if a.translation else "source"
+    needle = a.words.casefold()
+    hits = 0
+    for n in parse_chapters(a.chapters, st):
+        for pid, t in read_paragraphs(chapter_file(root, n, kind)):
+            k = t.casefold().find(needle)
+            if k >= 0:
+                hits += 1
+                print(f"[{n:02d}:{pid}] …{plain(t[max(0, k - 40):k + len(needle) + 40])}…")
+    if not hits:
+        print("Not found.")
+
+
 def cmd_inner(root: Path, a: argparse.Namespace) -> None:
     """Italic thoughts and narration questions per chapter: the raw material for the
     inner voice of a point-of-view character (fiction) or the author's voice (non-fiction)."""
@@ -862,8 +953,9 @@ def cmd_inner(root: Path, a: argparse.Namespace) -> None:
                 frag = (m.group(1) or m.group(2)).strip()
                 if len(frag.split()) >= 1 and not FOOTNOTE.search(frag):
                     italics.append(f"[{n:02d}:{pid}] *{frag}*")
-            if "?" in narration:
-                q = [x.strip() for x in SENTENCE_END.split(narration) if "?" in x]
+            prose = "" if is_code(narration) else without_links(narration)
+            if "?" in prose:
+                q = [x.strip() for x in SENTENCE_END.split(prose) if "?" in x]
                 questions.append(f"[{n:02d}:{pid}] " + " ".join(q)[:160])
         total_i += len(italics)
         total_q += len(questions)
@@ -1064,6 +1156,20 @@ def kept_names(glossary: list[dict]) -> re.Pattern[str] | None:
     return re.compile(rf"(?<!{LETTER})(?:{'|'.join(word_pattern(f, True) for f in forms)})(?!{LETTER})")
 
 
+def looks_untranslated(source: str, text: str) -> bool:
+    """True when a paragraph of eight or more words keeps four fifths of the source's words:
+    left in the source language. Works without a letter list (English into Polish, for one).
+    Code blocks, link texts and inline code are left out."""
+    if is_code(source) or not source.strip():
+        return False
+    # Link texts (often a title kept in its own language), link targets and inline code
+    # stay as they are in a good translation, so they are left out of the comparison.
+    strip = lambda t: LINK.sub(" ", re.sub(r"\[[^\]]*\]\([^)]*\)|`[^`]*`", " ", t))  # noqa: E731
+    words = lambda t: re.findall(r"[^\W\d_]{2,}", strip(t).casefold())  # noqa: E731
+    src, tgt = words(source), set(words(text))
+    return len(src) >= 8 and sum(w in tgt for w in src) / len(src) >= 0.8
+
+
 def hard_checks(st: dict, tgt: list[tuple[str, str]], src: list[tuple[str, str]],
                 glossary: list[dict] | None = None) -> list[str]:
     src_map = dict(src)
@@ -1077,13 +1183,15 @@ def hard_checks(st: dict, tgt: list[tuple[str, str]], src: list[tuple[str, str]]
         source = src_map.get(pid, "")
         if leftover and (m := leftover.findall(names.sub(" ", text) if names else text)):
             problems.append(f"[{pid}] source-language letters left: {''.join(sorted(set(m)))}")
+        if looks_untranslated(source, text):
+            problems.append(f"[{pid}] looks untranslated: most of its words are the same as in the source")
         if quotes and DIALOGUE_START.match(text) and SOURCE_DASH.match(source):
             problems.append(f"[{pid}] starts with a dialogue dash; this language uses quotation marks")
         if len(FOOTNOTE.findall(text)) != len(FOOTNOTE.findall(source)):
             problems.append(f"[{pid}] footnote markers: {len(FOOTNOTE.findall(source))} in the source, "
                             f"{len(FOOTNOTE.findall(text))} here")
         for url in LINK.findall(source):
-            if url.rstrip(".,;:)") not in text:
+            if url.rstrip(".,;:!?") not in text:
                 problems.append(f"[{pid}] link missing or changed: {url}")
         if nonfiction:
             digits = lambda t: [re.sub(r"\D", "", n) for n in NUMBER.findall(FOOTNOTE.sub(" ", t))]  # noqa: E731
@@ -1101,6 +1209,17 @@ def hard_checks(st: dict, tgt: list[tuple[str, str]], src: list[tuple[str, str]]
     return problems
 
 
+def without_links(text: str) -> str:
+    """Text without URLs, Markdown link targets and inline code: a term inside a URL or a
+    line of code is not a use of it."""
+    return LINK.sub(" ", re.sub(r"\]\([^)]*\)|`[^`\n]*`", lambda m: "]" if m.group(0).startswith("]") else " ", text))
+
+
+def is_code(text: str) -> bool:
+    """A fenced code block, or a paragraph indented as code."""
+    return text.lstrip().startswith("```") or text.startswith(("    ", "\t"))
+
+
 def glossary_drift(glossary: list[dict], src: dict[str, str], tgt: list[tuple[str, str]],
                    code: str = "en", skip: set[str] | None = None) -> dict[str, list[str]]:
     """{term line: [paragraph ids]} for source terms whose agreed translation is missing.
@@ -1109,8 +1228,10 @@ def glossary_drift(glossary: list[dict], src: dict[str, str], tgt: list[tuple[st
     for pid, text in tgt:
         if skip and pid in skip:
             continue
-        for r in terms_in(src.get(pid, ""), glossary):
-            if target_of(r) and not target_regex(r, code).search(text):
+        if is_code(src.get(pid, "")):
+            continue
+        for r in terms_in(without_links(src.get(pid, "")), glossary):
+            if target_of(r) and not target_regex(r, code).search(text if code == "en" else fold(text)):
                 out.setdefault(f"'{r['source']}' → '{target_of(r)}'", []).append(pid)
     return out
 
@@ -1189,8 +1310,22 @@ def pronoun_share(paragraphs: list[str], code: str) -> float | None:
     return round(100 * sum(bool(pr.match(x)) for x in sentences) / max(len(sentences), 1), 1)
 
 
+# Abbreviations whose full stop does not end a sentence (several languages). Those that can
+# also end one ("etc.", "itd.") count as an end only before a capital letter.
+ABBREVIATIONS = re.compile(
+    r"(?<![\w.])(?:m\.in|np|tzn|tj|ang|niem|łac|ok|prof|dr|mgr|inż|zob|por|godz|e\.g|i\.e|cf|vs|Mr|Mrs|Ms|Dr|Prof|St|"
+    r"z\.B|bzw|ca|vgl|p\.ex)\.(?=\s)|(?<![\w.])(?:etc|itd|itp|usw)\.(?=\s+[^\s\w]*(?-i:[a-ząćęłńóśźż0-9]))",
+    re.IGNORECASE)
+
+
+def sentences_of(text: str) -> list[str]:
+    """Sentences of one paragraph, not split at abbreviations such as "m.in." or "e.g."."""
+    masked = ABBREVIATIONS.sub(lambda m: m.group(0)[:-1] + "\u2024", text)
+    return [x for x in SENTENCE_END.split(masked) if x.strip()]
+
+
 def sentence_count(paragraphs: list[str]) -> int:
-    return sum(len([x for x in SENTENCE_END.split(t) if x.strip()]) for t in paragraphs if not t.startswith("#"))
+    return sum(len(sentences_of(t)) for t in paragraphs if not t.startswith("#"))
 
 
 def style_metrics(text: str, code: str = "en") -> dict:
@@ -1233,7 +1368,7 @@ def style_line(st: dict, tgt: list[str], src: list[str], per_fragment: bool = Fa
         word_count = lambda ps: sum(len(t.split()) for t in ps if not t.startswith("#"))  # noqa: E731
         limit = 30 * word_count(tgt) / max(word_count(src), 1)
         long_ = lambda ps, k: sum(1 for t in ps if not t.startswith("#")  # noqa: E731
-                                  for x in SENTENCE_END.split(t) if len(x.split()) >= k)
+                                  for x in sentences_of(t) if len(x.split()) >= k)
         parts.append(f"long sentences {long_(tgt, limit)} (source {long_(src, 30)}; "
                      f"30 source words, {round(limit)} here)")
     if st.get("genre", "fiction") == "fiction":
@@ -1402,6 +1537,8 @@ def cmd_letters(root: Path, a: argparse.Namespace) -> None:
 
 
 def to_md(text: str) -> str:
+    if text.lstrip().startswith("```"):
+        return text  # code: no hard line breaks added
     if SECTION.match(text.strip()):
         return text.strip()  # a section heading stays a Markdown heading
     lines = text.strip().split("\n")
@@ -1435,8 +1572,10 @@ def cmd_export(root: Path, a: argparse.Namespace) -> None:
         save_state(root, st)
     book_title = st.get("target_title") or st["title"]
     chapters = parse_chapters(a.chapters, st)
-    out = [f"% {book_title}", ""]
+    # A run with no title (the working title "Untitled") gets no title block.
+    out = [f"% {book_title}", ""] if plain(book_title).casefold() not in ("", "untitled") else []
     gaps = 0
+    starts: list[tuple[int, str, int]] = []  # (chapter, heading, where it starts in out)
     for ch in [c for c in st["chapters"] if c["n"] in chapters]:
         n = ch["n"]
         src = read_paragraphs(chapter_file(root, n))
@@ -1449,7 +1588,10 @@ def cmd_export(root: Path, a: argparse.Namespace) -> None:
             heading, under = default_heading(st, n), [f"**[Untranslated: chapter {n}, heading]**"]
         else:
             heading, under = default_heading(st, n), []
-        out.append(f"# {heading}\n")
+        starts.append((n, heading, len(out)))
+        # A one-chapter text (an essay, a post) whose heading is the title gets no second heading.
+        if not (len(st["chapters"]) == 1 and plain(heading).casefold() == plain(book_title).casefold()):
+            out.append(f"# {heading}\n")
         if under:
             out.append(to_md("\n".join(under)) + "\n")
         for f in [f for f in st["fragments"] if f["chapter"] == n]:
@@ -1470,6 +1612,17 @@ def cmd_export(root: Path, a: argparse.Namespace) -> None:
         name += "_ch" + re.sub(r"[^0-9,-]", "", a.chapters).replace(",", "+")
     if a.draft:
         name += "_DRAFT"
+    if a.per_chapter:
+        # One file per chapter, for a collection of posts or essays published one by one.
+        ends = [i for _, _, i in starts[1:]] + [len(out)]
+        for (n, heading, i), j in zip(starts, ends):
+            body = out[i:j]
+            if not body or not body[0].startswith("# "):
+                body = [f"# {heading}\n"] + body
+            f = exp / f"{n:02d}-{slug(heading) or 'chapter'}{'_DRAFT' if a.draft else ''}.md"
+            f.write_text("\n".join(body), encoding="utf-8")
+            print(f"Wrote {f.relative_to(root)}")
+        return
     md = exp / f"{name}.md"
     md.write_text("\n".join(out), encoding="utf-8")
     print(f"Wrote {md.relative_to(root)}")
@@ -1507,6 +1660,8 @@ def main() -> None:
     s.add_argument("--skeleton", action="store_true", help="write work/lines-draft.md to fill in")
     s.add_argument("--group", action="store_true", help="turn work/lines-draft.md into work/lines.md")
     s = sub.add_parser("inner"); s.add_argument("chapters", nargs="?", help="3, 1-4 or 1,3,5-6")
+    s = sub.add_parser("find"); s.add_argument("words"); s.add_argument("chapters", nargs="?")
+    s.add_argument("--translation", action="store_true", help="search the translation, not the source")
     s = sub.add_parser("terms"); s.add_argument("chapter", type=int)
     s = sub.add_parser("fragment"); s.add_argument("id")
     s = sub.add_parser("save"); s.add_argument("id"); s.add_argument("file")
@@ -1516,13 +1671,14 @@ def main() -> None:
     s.add_argument("--to", dest="end_at", help="end inside the last paragraph after these words")
     s = sub.add_parser("check"); s.add_argument("chapter", nargs="?", help="3, 1-4 or 1,3,5-6")
     s = sub.add_parser("export"); s.add_argument("--draft", action="store_true")
+    s.add_argument("--per-chapter", action="store_true", help="one Markdown file per chapter (posts, essays)")
     s.add_argument("--chapters", help="export only these chapters: 3, 1-4 or 1,3,5-6")
     s.add_argument("--title", help="title of the translation (saved for later exports)")
     a = p.parse_args()
     root = Path(a.dir).expanduser().resolve()
     {
         "prepare": cmd_prepare, "status": cmd_status, "mark": cmd_mark, "dialogue": cmd_dialogue,
-        "inner": cmd_inner,
+        "inner": cmd_inner, "find": cmd_find,
         "terms": cmd_terms, "fragment": cmd_fragment, "save": cmd_save, "letters": cmd_letters,
         "check": cmd_check, "export": cmd_export,
     }[a.cmd](root, a)

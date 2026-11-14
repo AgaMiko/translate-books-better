@@ -17,7 +17,7 @@ The workflow is the one of the [Mneme app](https://github.com/AgaMiko/mneme-book
 uv run ${CLAUDE_SKILL_DIR}/scripts/mneme.py --dir <book folder> <command>
 ```
 
-Without `uv`, use `python3` in place of `uv run` (reading a `.docx` then needs `pip install python-docx`). Run `--help` for all commands. The ones you use most: `status`, `fragment <id>`, `save <id> <file>`, `check`.
+Without `uv`, use `python3` in place of `uv run` (reading a `.docx` then needs `pip install python-docx`). Run `--help` for all commands. The ones you use most: `status`, `fragment <id>`, `save <id> <file>`, `check`, and `find "<words>"` to get the paragraph id of a passage you want to cite.
 
 The script knows the letters, chapter words, pronouns and dialogue marks of the languages in its `LANGUAGES` table (English, Polish, German, French, Spanish, Italian, Portuguese, Dutch, Swedish, Czech, Slovak, Hungarian, Russian, Ukrainian, Kannada, Japanese, Chinese). Any other language works too, with fewer automatic checks: `prepare` says which ones are missing.
 
@@ -114,7 +114,7 @@ Run `mark translation done` when `status` shows every fragment translated. For a
 
 ### 7. Export
 
-`export` writes `export/<translated-title>.md`, plus `.docx` and `.epub` when `pandoc` is installed (on a Mac: `brew install pandoc`). Fiction chapters are headed with the target language's chapter word and number ("Chapter 3", "Kapitel 3"), with the POV name and epigraph under it; a non-fiction chapter is headed with its translated title, and its section headings stay headings. `--title "<translated title>"` sets the title if `prepare` did not. It refuses while paragraphs are untranslated; `export --draft` marks the gaps and adds `_DRAFT` to the file name. For a part of the book, `export --draft --chapters 1-3`. Do not export a final version while a special passage has status `failed`, unless the user says so. Run `mark export done` and tell the user where the files are.
+`export` writes `export/<translated-title>.md`, plus `.docx` and `.epub` when `pandoc` is installed (on a Mac: `brew install pandoc`). Fiction chapters are headed with the target language's chapter word and number ("Chapter 3", "Kapitel 3"), with the POV name and epigraph under it; a non-fiction chapter is headed with its translated title, and its section headings stay headings. `--title "<translated title>"` sets the title if `prepare` did not. It refuses while paragraphs are untranslated; `export --draft` marks the gaps and adds `_DRAFT` to the file name. For a part of the book, `export --draft --chapters 1-3`. For a collection of posts or essays published one by one, `export --per-chapter` writes one file per chapter. Do not export a final version while a special passage has status `failed`, unless the user says so. Run `mark export done` and tell the user where the files are.
 
 ## Rules for working with the user
 
