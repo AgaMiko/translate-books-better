@@ -45,6 +45,10 @@ For each feature, decide the move:
 
 **Word order is not a marker.** In languages with free word order (Polish, Czech, Russian, Latin; verb-final clauses in German), an inverted order is ordinary speech or folk register, not broken grammar. Never mirror it as inverted syntax in a target with fixed word order ("itch it did", "Learned he is"): carry the register with the target's own country or old-fashioned grammar and words. Mirror word order only where the source speaker breaks the source language's own rules.
 
+**Dialect in English** stays readable and of today, and it stays dialect. Every speaker the source gives dialect keeps it in every one of their lines, as strongly as the source has it: readable does not mean neutral. Carry it with the target's real regional grammar and words ("it were", "as" for "who", "them" for "those", "of a night", "aye", a dropped "-g"), with plain, concrete words and short clauses, more than with spelling. Leave out archaic stage forms ("that be", "goodwife", "'tis", "mayhap") unless the source itself is archaic. Speakers who share a dialect may differ in strength, as in the source, but none of them drops into standard English.
+
+**Briefs from earlier chapters or an earlier run.** Before you use a brief you did not write in this run, read it against these rules. A brief that asks for something these rules forbid (mirroring the source's word order, stage tags, stage dialect, a translated real line) is fixed: change that instruction, keep the rest, and tell the user what you changed and why. Counts in an old brief cover only its own chapters (see above).
+
 Eye-dialect is decided per character: sparse equivalent eye-dialect for a regional or class accent within the language (one or two marks per sentence); grammar errors, not phonetic spelling, for a foreign speaker's accent. Do not add tags the source does not carry ("…, he did", "as went").
 
 ## 4. Look at the whole cast, then write the briefs

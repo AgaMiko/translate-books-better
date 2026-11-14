@@ -362,7 +362,8 @@ def split_heading(text: str) -> str:
     parts = [p.strip() for p in re.split(r"\s{2,}", text.strip()) if p.strip()]
     lines: list[str] = []
     for part in parts:
-        lines += [s for s in re.split(r"(?<=[^\s*]\*)\s+(?=\*[^\s*])", part) if s.strip()]
+        # Split between an italic or bold run and the next one ("*Ola* **Rozdział 1**").
+        lines += [s for s in re.split(r"(?:(?<=[^\s*]\*)|(?<=[^\s*]\*\*))\s+(?=\*{1,2}[^\s*])", part) if s.strip()]
     return "\n".join(lines)
 
 
