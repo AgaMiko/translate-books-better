@@ -2,6 +2,15 @@
 
 An agent skill for translating a whole book with Claude Code: a novel, short stories, or non-fiction such as essays, memoir, popular science or history, from any language into any other. It follows the workflow of the [Mneme app](https://github.com/AgaMiko/mneme-book-translator) without the app: no Docker, no database and no API keys of your own. Claude Code does the translation on your Claude plan.
 
+## What the skill gives you
+
+- **One set of decisions for the whole book.** Names, terms, spelling, and the way the author and each character speak are written down once, in files. Every chapter is translated against those files, so chapter 20 uses the same names and the same voice as chapter 1.
+- **You review before the book is translated.** The skill stops twice, after the glossary and after the voice briefs. You correct a decision once, and it holds for every chapter.
+- **A script does the counting.** Paragraph ids, missing glossary terms, source-language letters left in the translation, dialogue marks and the first letters of an acrostic are checked by code. Claude reads the report and fixes what it shows.
+- **Every change is reported.** Source typos, ambiguities and choices the author should confirm go to `notes.md`. Nothing in the author's text is corrected silently.
+- **You can stop and continue.** All state is in plain files in the book folder. A run can stop at any fragment and continue in a new session, and your edits to any file are kept.
+- **Only Claude Code is needed.** No Docker, no database and no API keys. The translation runs on your Claude plan.
+
 ## Why not just ask Claude to translate?
 
 Claude translates a single chapter well when you just ask. The trouble starts when a book is translated chapter by chapter: each request decides names, terms and style on its own, nothing remembers what earlier chapters chose, and nobody tells the author what was changed. The skill writes those decisions down once and holds every chapter to them.
@@ -30,7 +39,15 @@ Two of the plain version's six differences show why this matters: an invented he
 
 ## How it works
 
-The skill takes Claude through seven steps, the same ones as the Mneme app. Every decision is written to a plain file in the book folder, and the next steps read those files.
+The skill has three parts:
+
+- **`SKILL.md`** lists the steps and tells Claude what to do at each one.
+- **`references/`** holds the rules: how to build the glossary, how to write a voice brief, how to handle special passages, and how to translate. Claude reads each file when it reaches that step, so the rules for the current step are fresh in its context.
+- **`scripts/mneme.py`** is a helper script. It splits the manuscript, cuts the fragments, saves translated paragraphs, runs the checks and exports the book. It never calls a model: Claude does all the reading and translating.
+
+A whole book does not fit in one request, so the skill works on fragments of about 1,200 words. What keeps the fragments consistent is the book folder: every decision is written to a plain file there, and each fragment is translated with the files that apply to it (its glossary terms, the voice briefs of the people who speak in it, and the end of the previous fragment).
+
+The skill takes Claude through seven steps, the same ones as the Mneme app.
 
 1. **Split.** A helper script splits the manuscript (`.docx`, `.md` or `.txt`) into chapters, and for non-fiction into sections, then into fragments of about 1,200 words. Each paragraph gets an id (`[p017]`), so every note and check can point to it. Claude then writes `style-sheet.md`: spelling variant, quotation and dialogue marks, numbers, address forms ("pan Nowak" → "Mr Nowak"), and the choices with two accepted variants ("data is" or "data are").
 2. **Glossary.** Claude reads the book chapter by chapter and writes `glossary.md`: one row per name, place, invented word or field term, with the one form the translation uses and why. Then it **stops for your review**.
@@ -109,6 +126,20 @@ export/                    the finished book
 The helper script knows the letters, chapter words, pronouns and dialogue marks of English, Polish, German, French, Spanish, Italian, Portuguese, Dutch, Swedish, Czech, Slovak, Hungarian, Russian, Ukrainian, Kannada, Japanese and Chinese. Other languages work too, with fewer automatic checks; add an entry to `LANGUAGES` in `skills/translate-books-better/scripts/mneme.py` for full checks.
 
 The skill was tested most on Polish into English, fiction and non-fiction. Other pairs follow the same rules but have had less testing.
+
+## The skill or the Mneme app?
+
+Both follow the same workflow and the same translation rules.
+
+| | The skill | The [Mneme app](https://github.com/AgaMiko/mneme-book-translator) |
+|---|---|---|
+| Who translates | Claude, inside Claude Code | Gemini and OpenAI models, called by the app |
+| How you pay | your Claude plan | your own API keys, per use |
+| What you need | Claude Code and Python 3.10 or later | Docker and API keys |
+| Where you review | plain files: `glossary.md`, `voices/`, `translation/` | the browser, with the translation next to the source |
+| Languages and genres | any pair; fiction and non-fiction | built and tested on Polish fiction into English |
+
+Choose the skill if you already use Claude Code and are comfortable editing Markdown files. Choose the app if you want a review screen in the browser.
 
 ## Repository
 
